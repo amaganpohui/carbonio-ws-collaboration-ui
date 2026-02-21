@@ -11,6 +11,8 @@ import { STREAM_TYPE } from '../../types/store/ActiveMeetingTypes';
 import { getVideoStream } from '../../utils/UserMediaManager';
 import MeetingsApi from '../apis/MeetingsApi';
 
+const VIDEO_MAX_BITRATE = 255_000;
+
 export default class VideoOutConnection implements IVideoOutConnection {
 	peerConn: RTCPeerConnection | null;
 
@@ -96,17 +98,39 @@ export default class VideoOutConnection implements IVideoOutConnection {
 						videoTrack,
 						mediaStreamTrack ?? new MediaStream()
 					);
+					this.setVideoBitrate();
 				} else if (this.rtpSender?.track) {
 					if (isVirtualBackground) {
-						this.rtpSender.replaceTrack(videoTrack).catch((reason) => console.warn(reason));
+						this.rtpSender
+							.replaceTrack(videoTrack)
+							.then(() => this.setVideoBitrate())
+							.catch((reason) => console.warn(reason));
 					} else {
 						this.rtpSender.track.stop();
-						this.rtpSender.replaceTrack(videoTrack).catch((reason) => console.warn(reason));
+						this.rtpSender
+							.replaceTrack(videoTrack)
+							.then(() => this.setVideoBitrate())
+							.catch((reason) => console.warn(reason));
 					}
 				}
 			}
 			resolve(videoTrack);
 		});
+	}
+
+	private setVideoBitrate(): void {
+		if (!this.rtpSender) {
+			return;
+		}
+
+		const senderParameters = this.rtpSender.getParameters();
+		const encodings = senderParameters.encodings?.length ? senderParameters.encodings : [{}];
+		senderParameters.encodings = encodings.map((encoding) => ({
+			...encoding,
+			maxBitrate: VIDEO_MAX_BITRATE
+		}));
+
+		this.rtpSender.setParameters(senderParameters).catch((reason) => console.warn(reason));
 	}
 
 	// Handle remote answer to the SDP offer arrived from the signaling channel
